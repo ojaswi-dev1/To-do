@@ -3,6 +3,7 @@
 import { format, formatDistanceToNow } from "date-fns";
 import { Calendar, Edit, MoreVertical, Trash2 } from "lucide-react";
 import type { Task } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 import { Badge } from "@/components/ui/badge";
 import {
