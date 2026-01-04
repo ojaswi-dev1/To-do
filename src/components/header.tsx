@@ -1,8 +1,14 @@
+"use client";
+
 import Link from "next/link";
 import { ThemeToggle } from "./theme-toggle";
 import { Button } from "./ui/button";
+import { useUser } from "@/firebase";
+import { UserNav } from "./user-nav";
 
 export function Header() {
+  const { user, isUserLoading } = useUser();
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
@@ -14,12 +20,15 @@ export function Header() {
         </Link>
         <div className="flex items-center gap-4">
           <ThemeToggle />
-           <Button variant="outline" asChild>
-                <Link href="/dashboard">Dashboard</Link>
+          {isUserLoading ? (
+            <div className="h-9 w-20 animate-pulse rounded-md bg-muted" />
+          ) : user ? (
+            <UserNav user={user} />
+          ) : (
+            <Button variant="outline" asChild>
+                <Link href="/auth">Sign In</Link>
             </Button>
-            <Button asChild>
-                <Link href="/dashboard">Get Started</Link>
-            </Button>
+          )}
         </div>
       </div>
     </header>
