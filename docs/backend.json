@@ -1,0 +1,143 @@
+{
+  "entities": {
+    "Task": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Task",
+      "type": "object",
+      "description": "Represents a task in the TaskTrack application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Task entity."
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of the task."
+        },
+        "dueDate": {
+          "type": "string",
+          "description": "The date and time when the task is due.",
+          "format": "date-time"
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "Indicates whether the task has been completed."
+        },
+        "archived": {
+          "type": "boolean",
+          "description": "Indicates whether the task has been archived."
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "dueDate",
+        "completed",
+        "archived"
+      ]
+    },
+    "Theme": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Theme",
+      "type": "object",
+      "description": "Represents a user's theme preference.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Theme entity."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to User. (Relationship: User 1:1 Theme)"
+        },
+        "darkMode": {
+          "type": "boolean",
+          "description": "Indicates whether dark mode is enabled."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "darkMode"
+      ]
+    },
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user of the TaskTrack application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the User entity."
+        }
+      },
+      "required": [
+        "id"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profiles. The 'userId' parameter corresponds to the Firebase Authentication UID, ensuring path-based ownership.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The Firebase Authentication UID of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/tasks/{taskId}",
+        "definition": {
+          "entityName": "Task",
+          "schema": {
+            "$ref": "#/backend/entities/Task"
+          },
+          "description": "Stores tasks owned by a specific user. Enforces a User 1:N Tasks relationship via path-based ownership.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The Firebase Authentication UID of the user."
+            },
+            {
+              "name": "taskId",
+              "description": "The unique identifier for the task."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/theme",
+        "definition": {
+          "entityName": "Theme",
+          "schema": {
+            "$ref": "#/backend/entities/Theme"
+          },
+          "description": "Stores theme preferences for each user. Enforces a 1:1 relationship between User and Theme via path-based ownership.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The Firebase Authentication UID of the user."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore data structure is designed to ensure security, scalability, and ease of debugging, adhering to the core design principles of Authorization Independence, Clarity of Intent, DBAC (Database-Based Access Control), and QAPs (Rules are not Filters). It leverages Structural Segregation (Homogeneous Security Posture), and Access Modeling (Standardization and Consistency) strategy mandates to simplify security rules and enforce data integrity.\n\nUsers:\nPath-Based Ownership: The `/users/{userId}` collection stores user profiles, with `userId` corresponding to the Firebase Authentication UID. This structure is secure and makes ownership-based security rules simple and efficient.\n\nTasks:\nHierarchical Paths for User-Owned Data: Tasks are stored in a subcollection `/users/{userId}/tasks/{taskId}`, establishing a clear ownership hierarchy. This structure simplifies security rules as only the authenticated user (`request.auth.uid == userId`) can access tasks within their path.\n\nThemes:\nPath-Based Ownership: Themes are stored in the `/users/{userId}/theme` document. This enforces that each user has their own theme, directly linked to their user ID, thus ensuring strong access control and ownership. This also models a 1:1 relationship.\n\nAuthorization Independence:\nThe structure avoids hierarchical authorization dependencies by not relying on `get()` calls in the security rules. Authorization is solely based on `request.auth.uid` and the path structure, ensuring atomic operations and easier debugging.\n\nQAPs (Rules are not Filters):\nThe structure supports secure `list` operations by ensuring that each collection and subcollection has a homogeneous security posture. For example, listing tasks under `/users/{userId}/tasks` is secure because only the authenticated user can access that path.  Data segregation ensures that list operations don't require filtering based on user roles or permissions within the rules themselves."
+  }
+}

@@ -1,0 +1,163 @@
+/**
+ * Core Philosophy:
+ * This ruleset enforces a strict user-ownership model where all user-specific data
+ * (profiles, tasks, themes) is nested under a path corresponding to their Firebase
+ * Authentication UID. This ensures that users can only ever access their own data.
+ *
+ * Data Structure:
+ * All user-specific data is organized hierarchically under the /users/{userId} path.
+ * Tasks are stored in a /tasks subcollection, and theme settings are in a /theme
+ * singleton document, ensuring a clear and isolated data tree for each user.
+ *
+ * Key Security Decisions:
+ * - User Enumeration is Disallowed: Listing the top-level /users collection is
+ *   explicitly forbidden to protect user privacy.
+ * - Strict Ownership: All access to documents and subcollections under /users/{userId}
+ *   is restricted to the authenticated user whose UID matches the {userId} in the path.
+ * - Default Deny: Any path not explicitly defined in these rules is inaccessible.
+ *
+ * Denormalization for Authorization:
+ * The security model relies on path-based authorization, which is highly performant as
+ * it avoids extra database reads (`get()` calls). For documents like User and Theme,
+ * we enforce relational integrity by ensuring that an internal `id` or `userId` field
+ * matches the `userId` in the document path upon creation and remains immutable.
+ *
+ * Structural Segregation:
+ * The data is structurally segregated by user. Each user has their own "data silo"
+ * under /users/{userId}. This design naturally secures list operations, as a query
+ * for a user's tasks can only be initiated on a path they already own, guaranteeing
+ * that the results contain only their own documents.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------------
+    // Helper Functions
+    // ------------------------------------------------------------------------
+
+    /**
+     * Returns true if the user is signed in.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Returns true if the requesting user's UID matches the provided userId.
+     * This is the core of our user-ownership security model.
+     */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    /**
+     * Returns true if the document being accessed already exists.
+     * Used to protect against updates or deletes of non-existent documents.
+     */
+    function isExistingDocument() {
+      return resource != null;
+    }
+
+    /**
+     * Combines ownership and existence checks for state-changing operations.
+     * Ensures an owner is modifying a document that actually exists.
+     */
+    function isExistingOwner(userId) {
+      return isOwner(userId) && isExistingDocument();
+    }
+
+    /**
+     * Validates that the User document being created has an 'id' field
+     * that matches the user's auth UID. This enforces relational integrity.
+     */
+    function hasValidUserDataOnCreate(userId) {
+      return request.resource.data.id == userId;
+    }
+
+    /**
+     * Validates that the 'id' field of a User document is immutable.
+     * Prevents re-assigning ownership of a user profile.
+     */
+    function isUserDataImmutable() {
+      return request.resource.data.id == resource.data.id;
+    }
+
+    /**
+     * Validates that the Theme document being created has a 'userId' field
+     * that matches the user's auth UID. This enforces relational integrity.
+     */
+    function hasValidThemeDataOnCreate(userId) {
+      return request.resource.data.userId == userId;
+    }
+
+    /**
+     * Validates that the 'userId' field of a Theme document is immutable.
+     * Prevents re-assigning ownership of theme settings.
+     */
+    function isThemeDataImmutable() {
+      return request.resource.data.userId == resource.data.userId;
+    }
+
+    // ------------------------------------------------------------------------
+    // Collection Rules
+    // ------------------------------------------------------------------------
+
+    /**
+     * @description Manages user profile documents. Each user can create their own
+     *              profile and has full control over it, but cannot see or
+     *              interact with any other user's profile.
+     * @path        /users/{userId}
+     * @allow       (create) A new user can create their own user document if the
+     *              document ID matches their auth UID.
+     *              e.g., auth.uid 'user123' can create '/users/user123'.
+     * @deny        (get) A user cannot read another user's profile.
+     *              e.g., auth.uid 'user456' is denied read on '/users/user123'.
+     * @principle   Restricts access to a user's own data tree and prevents user enumeration.
+     */
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow create: if isOwner(userId) && hasValidUserDataOnCreate(userId);
+      allow update: if isExistingOwner(userId) && isUserDataImmutable();
+      allow delete: if isExistingOwner(userId);
+
+      /**
+       * @description Manages tasks within a user's private subcollection.
+       *              Only the user who owns the data tree can access these tasks.
+       * @path        /users/{userId}/tasks/{taskId}
+       * @allow       (create) The owner ('user123') can create a new task in their
+       *              own subcollection '/users/user123/tasks/{taskId}'.
+       * @deny        (list) A different user ('user456') cannot list tasks at
+       *              '/users/user123/tasks'.
+       * @principle   Enforces document ownership via hierarchical data paths.
+       */
+      match /tasks/{taskId} {
+        allow get: if isOwner(userId);
+        allow list: if isOwner(userId);
+        allow create: if isOwner(userId);
+        allow update: if isExistingOwner(userId);
+        allow delete: if isExistingOwner(userId);
+      }
+
+      /**
+       * @description Manages a user's theme settings, stored as a singleton
+       *              document. Only the owner can manage their theme.
+       * @path        /users/{userId}/theme
+       * @allow       (update) The owner ('user123') can update their theme settings
+       *              at '/users/user123/theme'.
+       * @deny        (create) A different user ('user456') cannot create or overwrite
+       *              the theme document at '/users/user123/theme'.
+       * @principle   Validates relational integrity between the document's content
+       *              and its path.
+       */
+      match /theme {
+        allow get: if isOwner(userId);
+        allow list: if false;
+        allow create: if isOwner(userId) && hasValidThemeDataOnCreate(userId);
+        allow update: if isExistingOwner(userId) && isThemeDataImmutable();
+        allow delete: if isExistingOwner(userId);
+      }
+    }
+  }
+}
